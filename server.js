@@ -80,9 +80,9 @@ cron.schedule('* * * * *', () => {
 
 // Handles incoming messages
 app.post("/incoming", (req, res) => {
-	console.log(req);
+     console.log(req);
     const query = req.body.Body.split(' ');
-    const clientNumber = +919590582244;//extractClientNumber(req.body.From);
+    const clientNumber = extractClientNumber(req.body.From);
     const action = _.lowerCase(query[0]);
 
     // Creating reminders
