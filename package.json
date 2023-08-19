@@ -4,7 +4,8 @@
   "description": "A whatsapp bot that reminds you via text messages.",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "dev": "nodemon server.js"
   },
   "author": "Shashank Pathak",
   "license": "ISC",
