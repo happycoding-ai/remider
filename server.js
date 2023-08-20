@@ -52,7 +52,7 @@ cron.schedule('* * * * *', () => {
             var throttledFunction = _.throttle((task) => {
                 client.messages
                     .create({
-                        body: `Here's your reminder for *${task.taskName}* now.`,
+                        body: `Your Reminder *${task.taskName}*.`,
                         from: "whatsapp:" + process.env.SERVER_NUMBER,
                         to: "whatsapp:" + task.clientNumber
                     }, (err, response) => {
@@ -181,9 +181,9 @@ app.post("/incoming", (req, res) => {
 });
 
 app.get("/", (req, res) => {
-    res.send("Hi! You've just found the server of Rebot. Welcome");
+    res.send("Hi! You've just found the server of Reminder. Welcome");
 });
 
-app.listen(process.env.PORT || 3000, () => {
+app.listen(process.env.PORT || 3070, () => {
     console.log("Server started.");
 });

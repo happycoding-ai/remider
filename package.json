@@ -1,12 +1,11 @@
 {
   "name": "rebot",
   "version": "1.0.0",
-  "description": "A whatsapp bot that reminds you via text messages.",
+  "description": "My reminder app you via text messages.",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
-  "author": "Shashank Pathak",
   "license": "ISC",
   "dependencies": {
     "body-parser": "^1.19.0",
