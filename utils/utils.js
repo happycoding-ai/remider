@@ -13,8 +13,9 @@ module.exports = {
         res.end(twiml.toString());
     },
     testInput: (query) => {		
-        const istString = moment.tz(new Date().toISOString(), "Asia/Kolkata").format().slice(0, 16) + ":00.000Z";
-		console.log(istString);
+        const istString = moment.tz(new Date().toISOString(), "Asia/Singapore").format().slice(0, 16) + ":00.000Z";
+		var curDate = new Date().toLocaleString("en-US", {timeZone: 'Asia/Singapore'});
+		console.log("current....."+istString);
         const currEpoch = Date.parse(istString);
         if (query[2].length !== 4) {    // Checking if time is not in HHMM format
             return false;
@@ -26,16 +27,17 @@ module.exports = {
         }
         const hour = query[2].slice(0, 2);
         const minutes = query[2].slice(2, 4);
+		console.log(hour + minutes);
         if (!query[3] || query[3] === "today") {
             const year = istString.slice(0, 4);
             const month = istString.slice(5, 7) - 1;
             const date = istString.slice(8, 10);
-            const userString = new Date(year, month, date, hour, minutes, 0, 0).toISOString();
-			console.log(userString);
+			var userString = new Date(year, month, date, hour, minutes, 0, 0);//toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'medium', hour12: false});
+			console.log("user ::::"+userString);
             const userEpoch = Date.parse(userString);
 			console.log(userEpoch);
 			console.log(currEpoch);
-            if (userEpoch > currEpoch) {    // Checking if user input not in past
+            if (new Date(userString).getTime() > new Date(curDate).getTime()) {    // Checking if user input not in past
                 return true;
             }
         } else {

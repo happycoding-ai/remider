@@ -41,7 +41,7 @@ const Reminder = mongoose.model('Reminder', reminderSchema);
 cron.schedule('* * * * *', () => {
     console.log("Checking database...");
     const isoString = new Date().toISOString();
-    const currTime = moment.tz(isoString, "Asia/Kolkata").format().slice(0, 16);
+    const currTime = moment.tz(isoString, "Asia/Singapore").format().slice(0, 16);
     console.log(currTime);
     Reminder.find({ taskTime: currTime }, (err, tasks) => {
         if (err) {
@@ -80,7 +80,7 @@ cron.schedule('* * * * *', () => {
 
 // Handles incoming messages
 app.post("/incoming", (req, res) => {
-     console.log(req);
+    //console.log(req);
     const query = req.body.Body.split(' ');
     const clientNumber = extractClientNumber(req.body.From);
     const action = _.lowerCase(query[0]);
@@ -102,10 +102,10 @@ app.post("/incoming", (req, res) => {
             // For today
             if (!query[3] || query[3] === "today") {
                 if (testInput(query)) {
-                    const istString = moment.tz(new Date().toISOString(), "Asia/Kolkata").format().slice(0, 16);
+                    const istString = moment.tz(new Date().toISOString(), "Asia/Singapore").format().slice(0, 16);
                     var month = istString.slice(5, 7);
                     var date = istString.slice(8, 10);
-                    const isoString = new Date(year, month - 1, date, hours, minutes, 0, 0).toISOString();
+                    const isoString = moment.tz(new Date(year, month - 1, date, hours, minutes, 0, 0).toISOString(), "Asia/Kolkata").format();
                     const taskTime = isoString.slice(0, 16);
                     console.log(`Reminder created for: ${taskTime}`);
                     const taskInfo = new Reminder({
