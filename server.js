@@ -2,22 +2,21 @@ require("dotenv").config();
 const express = require("express");
 const twilio = require("twilio");
 const mongoose = require("mongoose");
-const encrypt = require("mongoose-encryption");
 const bodyParser = require("body-parser");
 const _ = require("lodash");
 const cron = require("node-cron");
 const moment = require("moment-timezone");
+const { parse } = require("date-fns");
+const {
+  sendMessage,
+  extractClientNumber,
+  testInput,
+} = require("./utils/utils");
 const app = express();
-const Reminder = require("./models/reminder");
+const Reminder = require("./models/reminder"); // Adjust the path accordingly
 const SID = process.env.SID;
 const AUTH_TOKEN = process.env.AUTH_TOKEN;
 const client = new twilio(SID, AUTH_TOKEN);
-const {
-  extractClientNumber,
-  sendMessage,
-  testInput,
-} = require("./utils/utils.js");
-const { parse } = require("date-fns");
 
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
@@ -25,11 +24,8 @@ app.use(bodyParser.json());
 // Connecting to database
 mongoose
   .connect(process.env.DB_URI)
-  .then(() => console.log("connected to db..."))
-  .catch((err) => console.log("Error connecting to db: ", err));
-
-var encKey = process.env.SOME_32BYTE_BASE64_STRING;
-var sigKey = process.env.SOME_64BYTE_BASE64_STRING;
+  .then(() => console.log("Connected to the database..."))
+  .catch((err) => console.log("Error connecting to the database: ", err));
 
 // Searches the database for reminders per minute
 cron.schedule("* * * * *", () => {
@@ -76,50 +72,55 @@ cron.schedule("* * * * *", () => {
 });
 
 app.post("/incoming", (req, res) => {
+  const clientNumber = extractClientNumber(req.body.From); // Extract client number
+
   const requestBody = req.body.Body.toLowerCase();
 
-  if (requestBody.startsWith("cancel")) {
-    const reminderToDelete = requestBody.substring(7).trim();
-    Reminder.deleteOne({ body: reminderToDelete }, (err) => {
+  const query = requestBody.split(" ");
+  const action = _.lowerCase(query[0]);
+
+  // Handle cancel action
+  if (action === "cancel") {
+    const reminderToDelete = query.slice(1).join(" ");
+    Reminder.deleteOne({ taskName: reminderToDelete }, (err) => {
       if (err) {
         console.error(err);
         return res.status(500).json({ error: "Internal server error" });
       }
       return res.status(200).json({ message: "Reminder deleted successfully" });
     });
-  } else {
-    const dateRegex =
-      /(?:next\s*)?([a-z]+)\s*(\d{1,2}(?:st|nd|rd|th)?)|(\d{1,2}(?:st|nd|rd|th)?)\s*([a-z]+)/;
-    const timeRegex = /(\d{1,2}(?::\d{2})?\s*(?:am|pm?)?)/;
+  }
 
-    const dateMatch = requestBody.match(dateRegex);
-    const timeMatch = requestBody.match(timeRegex);
+  // Handle set action
+  if (action === "set") {
+    const timeIndex = query.findIndex((word) =>
+      word.match(/\d{1,2}(?:am|pm)?/)
+    );
 
-    if (!dateMatch || !timeMatch) {
+    if (timeIndex === -1) {
       return res.status(400).json({ error: "Invalid input format" });
     }
 
-    let [, month, dayOfMonth, dayOfMonthAlt, monthAlt] = dateMatch;
-    let [time] = timeMatch;
+    const taskName = query.slice(1, timeIndex).join(" ");
 
-    if (!time.includes("am") && !time.includes("pm")) {
-      // Assume PM if no am/pm is provided
-      time += "pm";
+    const time = query[timeIndex];
+    const topic = query.slice(timeIndex + 1).join(" ");
+
+    // Validation using testInput function
+    if (!testInput(query)) {
+      sendMessage(
+        "Please enter valid inputs and try again. Possible error: *Inputs not according to specified format* or *Reminder time given in past* (I hope you know time travel isn't possible yet)",
+        res
+      );
+      return;
     }
 
-    const topic = requestBody
-      .replace(dateMatch[0], "")
-      .replace(timeMatch[0], "")
-      .trim();
-
+    // Rest of the code to create a new reminder and save it
     const currentYear = new Date().getFullYear();
-
-    // Rearrange components for better parsing
     const dateTimeStr = `${month || monthAlt} ${
       dayOfMonth || dayOfMonthAlt
     } ${currentYear} ${time}`;
 
-    // Fix the issue with 'dateTime' being null
     const dateTime =
       parse(dateTimeStr, "MMMM dd yyyy h:mmaaa", new Date()) ?? Date.now();
 
@@ -130,8 +131,10 @@ app.post("/incoming", (req, res) => {
     }
 
     const newReminder = new Reminder({
-      body: topic,
-      dateTime: dateTime,
+      taskName: topic,
+      taskTime: dateTimeStr,
+      taskTimeOG: dateTime,
+      clientNumber: clientNumber, // Use extracted client number
     });
 
     newReminder.save((err, reminder) => {
@@ -142,58 +145,31 @@ app.post("/incoming", (req, res) => {
       return res.status(200).json({ message: "Reminder created successfully" });
     });
   }
-});
 
-app.get("/reminders", (req, res) => {
-  Reminder.find({}, (err, reminders) => {
-    if (err) {
-      console.error(err);
-      return res.status(500).json({ error: "Internal server error" });
-    }
-
-    const fillerWords = ["remind", "me", "on", "to", "at"];
-
-    const markedReminders = reminders.map((reminder) => {
-      const words = reminder.body.toLowerCase().split(" ");
-
-      let date = "";
-      let time = "";
-      let topic = "";
-      let remainingWords = "";
-
-      for (let i = 0; i < words.length; i++) {
-        const word = words[i];
-
-        if (
-          word.endsWith("th") ||
-          word.endsWith("st") ||
-          word.endsWith("nd") ||
-          word.endsWith("rd")
-        ) {
-          date += word + " ";
-        } else if (word.includes(":") || word.match(/^\d+(?:am|pm)$/)) {
-          time = word;
-          remainingWords = words.slice(i + 1).join(" ");
-          break;
-        } else if (!fillerWords.includes(word)) {
-          topic += word + " ";
-        }
+  // Handle view action
+  if (action === "view") {
+    Reminder.find({ clientNumber: clientNumber }, (err, foundTasks) => {
+      if (err) {
+        console.log(err);
+        return res.status(500).json({ error: "Internal server error" });
+      } else if (foundTasks.length) {
+        const upcomingTasks = foundTasks.map((task) => {
+          return `*${task.taskName}* at *${task.taskTimeOG}*`;
+        });
+        sendMessage(upcomingTasks.join("\n"), res);
+      } else {
+        sendMessage(
+          "You don't have any upcoming tasks. Create some first. To know how to create type *set* to get insight.",
+          res
+        );
       }
-
-      return {
-        date: date.trim(),
-        time,
-        topic: topic.trim(),
-        remainingWords,
-      };
     });
+  }
 
-    return res.status(200).json({ reminders: markedReminders });
-  });
-});
-
-app.get("/", (req, res) => {
-  res.send("Hi! You've just found the server of Rebot. Welcome");
+  // Handle unknown action
+  if (!["cancel", "set", "view"].includes(action)) {
+    sendMessage("I don't know what that means. Try *set* or *view*", res);
+  }
 });
 
 app.listen(process.env.PORT || 3000, () => {
