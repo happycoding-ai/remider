@@ -139,7 +139,7 @@ app.post("/incoming", (req, res) => {
     const taskName = sentence.replace(date_entity, '').replace(time_entity, '').trim();
 
     [/\d\d\d(am|pm|AM|PM)/g, /\d\d\d\d(am|pm|AM|PM)/g].forEach(regex => {
-        const found = sentence.match(regex);
+        const found = time_entity.match(regex);
         if(found) {
             part = found[0].substring(found[0].length, found[0].length-2).toUpperCase();
             hour = found[0].substring(0, found[0].length-4);
