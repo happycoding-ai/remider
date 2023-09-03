@@ -11,7 +11,7 @@ const app = express();
 const SID = process.env.SID;
 const AUTH_TOKEN = process.env.AUTH_TOKEN;
 const client = new twilio(SID, AUTH_TOKEN);
-const { extractClientNumber, sendMessage, testInput } = require("./utils/utils.js");
+const { extractClientNumber, sendMessage, testInput, getTime, getDateMonth, getDayMonth, getTodayTomorrow } = require("./utils/utils.js");
 
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
@@ -86,21 +86,67 @@ app.post("/incoming", (req, res) => {
     const action = _.lowerCase(query[0]);
 
     // Creating reminders
-    if (action === "set") {
+    if (action === "set" || (action!="view"&&action!="cancel")) {
         // Send instructions
         if (!query[1]) {
             sendMessage("Format: \n *set* _task(required, no spaces)_ _time(required, in HHMM format)_ _date(optional, in DD/MM format, default is today)_", res);
         }
         else {
 
-            const taskName = query[1];
-            const time = query[2];
-            var hours = parseInt(time.slice(0, 2));
-            var minutes = parseInt(time.slice(2, 4));
+            const time = getTime(query);
+            if(!time||time.status==0){
+                return sendMessage(time.message||"Can't parse time",res);
+            }
+            var hours = parseInt(time.hours);
+            var minutes = parseInt(time.minutes);
             var year = new Date().getUTCFullYear();
 
+            var datemonth = getDateMonth(query);
+            if(!datemonth||datemonth.status==0){
+                datemonth = getDayMonth(query);
+            }
+            if(!datemonth||datemonth.status==0){
+                datemonth = getTodayTomorrow(query);
+            }
+            if(!datemonth||datemonth.status==0){
+                return sendMessage(datemonth.message||"Can't parse date",res);
+            }
+            // console.log('datemonth',datemonth);
+            let isoDate = new Date(year, datemonth.month, datemonth.date, time.hours, time.minutes, 0, 0);
+            // console.log('isodate',isoDate);
+            // console.log('new date',new Date());
+            if(isoDate<new Date()){
+                return sendMessage("Reminder time given in past",res);
+            }
+            let taskName = req.body.Body.replace(time.t_str,'');
+            taskName = taskName.replace(datemonth.d_str,'');
+            taskName = taskName.replace('set','');
+            taskName = taskName.replace('Remind','');
+            taskName = taskName.replace('me','');
+            taskName = taskName.replace('on','');
+            taskName = taskName.replace('at','');
+            taskName = taskName.replace('to','');
+            taskName = taskName.replace(/\s+/g,' ');
+            taskName = taskName.trim();
+            // datemonth = {...datemonth,...time,taskName:taskName};
+            const isoString = moment.tz(new Date(year, datemonth.month, datemonth.date, time.hours, time.minutes, 0, 0).toISOString(), "Asia/Kolkata").format();
+            const taskTime = isoString.slice(0, 16);
+            console.log(`Reminder created for: ${taskTime}`);
+            const taskInfo = new Reminder({
+                taskName: taskName,
+                taskTime: taskTime,
+                taskTimeOG: new Date(year, datemonth.month, datemonth.date, time.hours, time.minutes, 0, 0).toDateString().slice(0, 16) + " at " + new Date(year, datemonth.month, datemonth.date, time.hours, time.minutes, 0, 0).toTimeString().slice(0, 5),
+                clientNumber: clientNumber
+            });
+            taskInfo.save((err) => {
+                if (err) {
+                    console.log(err)
+                } else {
+                    sendMessage(`Ok, will remind you about *${taskName}*`, res);
+                }
+            });
             // For today
-            if (!query[3] || query[3] === "today") {
+            /* if (!query[3] || query[3] === "today") {
                 if (testInput(query)) {
                     const istString = moment.tz(new Date().toISOString(), "Asia/Singapore").format().slice(0, 16);
                     var month = istString.slice(5, 7);
@@ -124,10 +170,10 @@ app.post("/incoming", (req, res) => {
                 } else {
                     sendMessage("Please enter valid inputs and try again. Possible error: *Inputs not according to specified format* or *Reminder time given in past* (I hope you know time travel isn't possible yet)", res);
                 }
-            }
+            } */
 
             // For any day
-            else {
+            /* else {
                 if (testInput(query)) {
                     const dateMonthString = query[3];
                     var date = parseInt(dateMonthString.split('/')[0]);
@@ -151,7 +197,7 @@ app.post("/incoming", (req, res) => {
                 } else {
                     sendMessage("Please enter valid inputs and try again. Possible error: *Inputs not according to specified format* or *Reminder time given in past* (I hope you know time travel isn't possible yet)", res);
                 }
-            }
+            } */
         }
     }
 
@@ -175,6 +221,59 @@ app.post("/incoming", (req, res) => {
                 }
             }
         );
+    } else if(action === "cancel"){
+        const time = getTime(query);
+        if(!time||time.status==0){
+            return sendMessage(time.message||"Can't parse time",res);
+        }
+        var hours = parseInt(time.hours);
+        var minutes = parseInt(time.minutes);
+        var year = new Date().getUTCFullYear();
+
+        var datemonth = getDateMonth(query);
+        if(!datemonth||datemonth.status==0){
+            datemonth = getDayMonth(query);
+        }
+        if(!datemonth||datemonth.status==0){
+            datemonth = getTodayTomorrow(query);
+        }
+        if(!datemonth||datemonth.status==0){
+            return sendMessage(datemonth.message||"Can't parse date",res);
+        }
+        // console.log('datemonth',datemonth);
+        let isoDate = new Date(year, datemonth.month, datemonth.date, time.hours, time.minutes, 0, 0);
+        // console.log('isodate',isoDate);
+        // console.log('new date',new Date());
+        if(isoDate<new Date()){
+            return sendMessage("Reminder time given in past",res);
+        }
+        let taskName = req.body.Body.replace(time.t_str,'');
+        taskName = taskName.replace(datemonth.d_str,'');
+        taskName = taskName.replace('set','');
+        taskName = taskName.replace('Remind','');
+        taskName = taskName.replace('me','');
+        taskName = taskName.replace('on','');
+        taskName = taskName.replace('at','');
+        taskName = taskName.replace('to','');
+        taskName = taskName.replace('cancel','');
+        taskName = taskName.replace(/\s+/g,' ');
+        taskName = taskName.trim();
+        datemonth = {...datemonth,...time,taskName:taskName};
+        const isoString = moment.tz(new Date(year, datemonth.month, datemonth.date, time.hours, time.minutes, 0, 0).toISOString(), "Asia/Kolkata").format();
+        const taskTime = isoString.slice(0, 16);
+        const taskInfo = {
+            taskName: taskName,
+            taskTime: taskTime,
+            taskTimeOG: new Date(year, datemonth.month, datemonth.date, time.hours, time.minutes, 0, 0).toDateString().slice(0, 16) + " at " + new Date(year, datemonth.month, datemonth.date, time.hours, time.minutes, 0, 0).toTimeString().slice(0, 5),
+            clientNumber: clientNumber
+        };
+        Reminder.remove(taskInfo,(err) => {
+            if (err) {
+                console.log(err)
+            } else {
+                sendMessage(`*${taskName}* reminder cancelled`, res);
+            }
+        });
     } else {
         sendMessage("I don't know what that means. Try *set* or *view*", res);
     }
