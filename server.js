@@ -36,7 +36,7 @@ var sigKey = process.env.SOME_64BYTE_BASE64_STRING;
 // Database schema
 const reminderSchema = new mongoose.Schema({
     taskName: String,
-    taskTime: String,
+    taskTime: Date,
     taskTimeOG: String,
     clientNumber: String
 });
@@ -51,10 +51,9 @@ const Reminder = mongoose.model('Reminder', reminderSchema);
 // Searches the database for reminders per minute
 cron.schedule('* * * * *', () => {
     console.log("Checking database...");
-    const isoString = new Date().toISOString();
-    const currTime = moment.tz(isoString, "Asia/Singapore").format().slice(0, 16);
+    const currTime = new Date();
     console.log(currTime);
-    Reminder.find({ taskTime: currTime }, (err, tasks) => {
+    Reminder.find({ taskTime: {$lte: currTime} }, (err, tasks) => {
         if (err) {
             console.log(err);
         } else {
@@ -96,6 +95,12 @@ cron.schedule('* * * * *', () => {
 // Handles incoming messages
 app.post("/incoming", (req, res) => {
     const clientNumber = extractClientNumber(req.body.From);
+    const timezoneOffset = req.body.TimezoneOffset;
+
+    if(typeof(timezoneOffset) !== "number") {
+        sendMessage("timezoneOffset should be in minutes as number", res);
+        return;
+    }
 
     // View Reminders
     if (_.lowerCase(req.body.Body.split(' ')[0]) === "view") {
@@ -124,15 +129,41 @@ app.post("/incoming", (req, res) => {
     const doc = nlp.readDoc(sentence);
     const entities = doc.entities().out(its.detail);
     const date_entity = entities.find(e => e.type == 'DATE')?.value;
-    const time_entity = entities.find(e => e.type == 'TIME')?.value;
+    let time_entity = entities.find(e => e.type == 'TIME')?.value;
 
     if(date_entity == undefined && time_entity == undefined) {
         sendMessage("I don't know what that means. Please check with Help command to create proper reminder.", res);
         return
     }
 
+    if(time_entity == undefined) {
+        let hour = "", minute = "";
+        // const found = sentence.match(/\d\d\d\d/g);
+        // if(found) {
+        //     hour = found[0].substring(0, 2);
+        //     minute = found[0].substring(2);
+        // }
+
+        [/\d:\d\d/g, /\d\d:\d\d/g].forEach(regex => {
+            const found = sentence.match(regex);
+            if(found) {
+                [hour, minute] = found[0].split(":");
+            }
+        });
+
+        hour = parseInt(hour);
+        minute = parseInt(minute);
+        let part = "AM";
+        if(hour => 12 && hour <= 24) {hour -= 12; part = "PM"}
+        if(hour >= 0 && hour < 12 && minute >= 0 && minute < 60) {
+            time_entity = ("0" + hour).slice(-2)+":"+("0" + minute).slice(-2)+part;
+        }   
+    }
+
     const taskName = sentence.replace(date_entity, '').replace(time_entity, '').trim();
-    const taskTime = sugar.Date(date_entity +" "+ time_entity)?.raw;
+    const taskTime = moment(sugar.Date.create(date_entity +" "+ time_entity, { fromUTC: true })) 
+        .add(timezoneOffset, "minutes").toDate();
+    
     if(isNaN(taskTime)) {
         sendMessage("Please enter your date and time properly. Ex: Jan 30 at 2am or 30th Jan at 2am", res);
         return;
@@ -145,13 +176,13 @@ app.post("/incoming", (req, res) => {
 
     
     // Creating reminders
-    const isoString = moment.tz(taskTime.toISOString(), "Asia/Kolkata").format();
     console.log(`Reminder created for: ${taskTime}`);
     const taskInfo = new Reminder({
         taskName: taskName,
-        taskTime: isoString.slice(0, 16),
+        taskTime: taskTime,
         taskTimeOG: taskTime.toDateString().slice(0, 16) + " at " + taskTime.toTimeString().slice(0, 5),
-        clientNumber: clientNumber
+        clientNumber: clientNumber,
+        reminded: false
     });
     taskInfo.save((err) => {
         if (err) {
