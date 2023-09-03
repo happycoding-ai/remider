@@ -161,7 +161,7 @@ app.post("/incoming", (req, res) => {
     }
 
     const taskName = sentence.replace(date_entity, '').replace(time_entity, '').trim();
-    const taskTime = moment(sugar.Date.create(date_entity +" "+ time_entity, { fromUTC: true })) 
+    let taskTime = moment(sugar.Date.create(date_entity +" "+ time_entity, { fromUTC: true })) 
         .add(timezoneOffset, "minutes").toDate();
     
     if(isNaN(taskTime)) {
@@ -169,9 +169,13 @@ app.post("/incoming", (req, res) => {
         return;
     }
 
-    if(new Date >= taskTime) {
-        sendMessage("We cannot set your reminder at old date time.", res);
-        return;
+    if(new Date() >= taskTime) {
+        if(!date_entity.includes(taskTime.getFullYear().toString())) {
+            taskTime = moment(taskTime).add(1, "year").toDate();
+        } else {
+            sendMessage("We cannot set your reminder at old date time.", res);
+            return;
+        }
     }
 
     
