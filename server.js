@@ -95,49 +95,10 @@ cron.schedule('* * * * *', () => {
 
 // Handles incoming messages
 app.post("/incoming", (req, res) => {
-    const action = req.body.Body.split(' ')[0];
-
-    const sentence = req.body.Body;
-    const doc = nlp.readDoc(sentence);
-    const entities = doc.entities().out(its.detail);
-    const date_entity = entities.find(e => e.type == 'DATE')?.value;
-    const time_entity = entities.find(e => e.type == 'TIME')?.value;
-    const taskName = sentence.replace(date_entity, '').replace(time_entity, '').replace(action, '').trim();
-    const taskTime = sugar.Date(date_entity +" "+ time_entity)?.raw;
-    if(isNaN(taskTime)) {
-        sendMessage("Please write your date and time properly", res);
-        return;
-    }
-
-    if(new Date >= taskTime) {
-        sendMessage("Provided date time is old", res);
-        return;
-    }
-
     const clientNumber = extractClientNumber(req.body.From);
-        
 
-    // Creating reminders
-    if (_.lowerCase(action) === "set") {
-        const isoString = moment.tz(taskTime.toISOString(), "Asia/Kolkata").format();
-        console.log(`Reminder created for: ${taskTime}`);
-        const taskInfo = new Reminder({
-            taskName: taskName,
-            taskTime: isoString,
-            taskTimeOG: taskTime.toDateString().slice(0, 16) + " at " + taskTime.toTimeString().slice(0, 5),
-            clientNumber: clientNumber
-        });
-        taskInfo.save((err) => {
-            if (err) {
-                console.log(err)
-            } else {
-                sendMessage(`Ok, will remind about *${taskName}*`, res);
-            }
-        });
-    }
-
-    // View reminders
-    else if (_.lowerCase(action) === "view") {
+    // View Reminders
+    if (_.lowerCase(req.body.Body.split(' ')[0]) === "view") {
         console.log("view");
         Reminder.find(
             { clientNumber: clientNumber },
@@ -156,9 +117,49 @@ app.post("/incoming", (req, res) => {
                 }
             }
         );
-    } else {
-        sendMessage("I don't know what that means. Try *set* or *view*", res);
+        return;
+    } 
+
+    const sentence = req.body.Body;
+    const doc = nlp.readDoc(sentence);
+    const entities = doc.entities().out(its.detail);
+    const date_entity = entities.find(e => e.type == 'DATE')?.value;
+    const time_entity = entities.find(e => e.type == 'TIME')?.value;
+
+    if(date_entity == undefined && time_entity == undefined) {
+        sendMessage("I don't know what that means.", res);
+        return
     }
+
+    const taskName = sentence.replace(date_entity, '').replace(time_entity, '').trim();
+    const taskTime = sugar.Date(date_entity +" "+ time_entity)?.raw;
+    if(isNaN(taskTime)) {
+        sendMessage("Please write your date and time properly", res);
+        return;
+    }
+
+    if(new Date >= taskTime) {
+        sendMessage("Provided date time is old", res);
+        return;
+    }
+
+    
+    // Creating reminders
+    const isoString = moment.tz(taskTime.toISOString(), "Asia/Kolkata").format();
+    console.log(`Reminder created for: ${taskTime}`);
+    const taskInfo = new Reminder({
+        taskName: taskName,
+        taskTime: isoString,
+        taskTimeOG: taskTime.toDateString().slice(0, 16) + " at " + taskTime.toTimeString().slice(0, 5),
+        clientNumber: clientNumber
+    });
+    taskInfo.save((err) => {
+        if (err) {
+            console.log(err)
+        } else {
+            sendMessage(`Ok, will remind about *${taskName}*`, res);
+        }
+    });
 });
 
 app.get("/", (req, res) => {
