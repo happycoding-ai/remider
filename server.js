@@ -127,19 +127,19 @@ app.post("/incoming", (req, res) => {
     const time_entity = entities.find(e => e.type == 'TIME')?.value;
 
     if(date_entity == undefined && time_entity == undefined) {
-        sendMessage("I don't know what that means.", res);
+        sendMessage("I don't know what that means. Please check with Help command to create proper reminder.", res);
         return
     }
 
     const taskName = sentence.replace(date_entity, '').replace(time_entity, '').trim();
     const taskTime = sugar.Date(date_entity +" "+ time_entity)?.raw;
     if(isNaN(taskTime)) {
-        sendMessage("Please write your date and time properly", res);
+        sendMessage("Please enter your date and time properly. Ex: Jan 30 at 2am or 30th Jan at 2am", res);
         return;
     }
 
     if(new Date >= taskTime) {
-        sendMessage("Provided date time is old", res);
+        sendMessage("We cannot set your reminder at old date time.", res);
         return;
     }
 
@@ -149,7 +149,7 @@ app.post("/incoming", (req, res) => {
     console.log(`Reminder created for: ${taskTime}`);
     const taskInfo = new Reminder({
         taskName: taskName,
-        taskTime: isoString,
+        taskTime: isoString.slice(0, 16),
         taskTimeOG: taskTime.toDateString().slice(0, 16) + " at " + taskTime.toTimeString().slice(0, 5),
         clientNumber: clientNumber
     });
