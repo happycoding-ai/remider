@@ -4,7 +4,7 @@
   "description": "My reminder app you via text messages.",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "supervisor server.js"
   },
   "license": "ISC",
   "dependencies": {
@@ -21,6 +21,10 @@
     "mongoose-encryption": "^2.0.2",
     "ngrok": "^3.2.7",
     "node-cron": "^2.0.3",
-    "twilio": "^3.63.0"
+    "sugar": "^2.0.6",
+    "supervisor": "^0.12.0",
+    "twilio": "^3.63.0",
+    "wink-eng-lite-web-model": "^1.5.2",
+    "wink-nlp": "^1.14.3"
   }
 }

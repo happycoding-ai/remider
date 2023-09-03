@@ -8,10 +8,21 @@ const _ = require("lodash");
 const cron = require("node-cron");
 const moment = require("moment-timezone");
 const app = express();
+const { extractClientNumber, sendMessage, testInput } = require("./utils/utils.js");
+
 const SID = process.env.SID;
 const AUTH_TOKEN = process.env.AUTH_TOKEN;
-const client = new twilio(SID, AUTH_TOKEN);
-const { extractClientNumber, sendMessage, testInput } = require("./utils/utils.js");
+if(process.env.USE_TWILIO != "no") {
+    client = new twilio(SID, AUTH_TOKEN);
+}
+
+const sugar = require('sugar')
+
+const winkNLP = require( 'wink-nlp' );
+const model = require( 'wink-eng-lite-web-model' );
+const nlp = winkNLP( model );
+const its = nlp.its;
+const as = nlp.as;
 
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
@@ -50,18 +61,22 @@ cron.schedule('* * * * *', () => {
 
             // Creating a throttled function that sends messages slowly
             var throttledFunction = _.throttle((task) => {
-                client.messages
-                    .create({
-                        body: `Your Reminder *${task.taskName}*.`,
-                        from: "whatsapp:" + process.env.SERVER_NUMBER,
-                        to: "whatsapp:" + task.clientNumber
-                    }, (err, response) => {
-                        if (err) {
-                            console.log(err);
-                        } else {
-                            console.log(`Sent a message!`+ response);
-                        }
-                    }).then(message => console.log(message));
+                if(process.env.USE_TWILIO != "no") {
+                    client.messages
+                        .create({
+                            body: `Your Reminder *${task.taskName}*.`,
+                            from: "whatsapp:" + process.env.SERVER_NUMBER,
+                            to: "whatsapp:" + task.clientNumber
+                        }, (err, response) => {
+                            if (err) {
+                                console.log(err);
+                            } else {
+                                console.log(`Sent a message!`+ response);
+                            }
+                        }).then(message => console.log(message));
+                } else {
+                    console.log("[REMINDER SENT]", task.taskName);
+                }
             }, 1000);
 
             // Calling throttled function to send message
@@ -80,83 +95,49 @@ cron.schedule('* * * * *', () => {
 
 // Handles incoming messages
 app.post("/incoming", (req, res) => {
-    //console.log(req);
-    const query = req.body.Body.split(' ');
+    const action = req.body.Body.split(' ')[0];
+
+    const sentence = req.body.Body;
+    const doc = nlp.readDoc(sentence);
+    const entities = doc.entities().out(its.detail);
+    const date_entity = entities.find(e => e.type == 'DATE')?.value;
+    const time_entity = entities.find(e => e.type == 'TIME')?.value;
+    const taskName = sentence.replace(date_entity, '').replace(time_entity, '').replace(action, '').trim();
+    const taskTime = sugar.Date(date_entity +" "+ time_entity)?.raw;
+    if(isNaN(taskTime)) {
+        sendMessage("Please write your date and time properly", res);
+        return;
+    }
+
+    if(new Date >= taskTime) {
+        sendMessage("Provided date time is old", res);
+        return;
+    }
+
     const clientNumber = extractClientNumber(req.body.From);
-    const action = _.lowerCase(query[0]);
+        
 
     // Creating reminders
-    if (action === "set") {
-        // Send instructions
-        if (!query[1]) {
-            sendMessage("Format: \n *set* _task(required, no spaces)_ _time(required, in HHMM format)_ _date(optional, in DD/MM format, default is today)_", res);
-        }
-        else {
-
-            const taskName = query[1];
-            const time = query[2];
-            var hours = parseInt(time.slice(0, 2));
-            var minutes = parseInt(time.slice(2, 4));
-            var year = new Date().getUTCFullYear();
-
-            // For today
-            if (!query[3] || query[3] === "today") {
-                if (testInput(query)) {
-                    const istString = moment.tz(new Date().toISOString(), "Asia/Singapore").format().slice(0, 16);
-                    var month = istString.slice(5, 7);
-                    var date = istString.slice(8, 10);
-                    const isoString = moment.tz(new Date(year, month - 1, date, hours, minutes, 0, 0).toISOString(), "Asia/Kolkata").format();
-                    const taskTime = isoString.slice(0, 16);
-                    console.log(`Reminder created for: ${taskTime}`);
-                    const taskInfo = new Reminder({
-                        taskName: taskName,
-                        taskTime: taskTime,
-                        taskTimeOG: new Date(year, month - 1, date, hours, minutes, 0, 0).toDateString().slice(0, 16) + " at " + new Date(year, month - 1, date, hours, minutes, 0, 0).toTimeString().slice(0, 5),
-                        clientNumber: clientNumber
-                    });
-                    taskInfo.save((err) => {
-                        if (err) {
-                            console.log(err)
-                        } else {
-                            sendMessage(`Ok, will remind about *${taskName}*`, res);
-                        }
-                    });
-                } else {
-                    sendMessage("Please enter valid inputs and try again. Possible error: *Inputs not according to specified format* or *Reminder time given in past* (I hope you know time travel isn't possible yet)", res);
-                }
+    if (_.lowerCase(action) === "set") {
+        const isoString = moment.tz(taskTime.toISOString(), "Asia/Kolkata").format();
+        console.log(`Reminder created for: ${taskTime}`);
+        const taskInfo = new Reminder({
+            taskName: taskName,
+            taskTime: isoString,
+            taskTimeOG: taskTime.toDateString().slice(0, 16) + " at " + taskTime.toTimeString().slice(0, 5),
+            clientNumber: clientNumber
+        });
+        taskInfo.save((err) => {
+            if (err) {
+                console.log(err)
+            } else {
+                sendMessage(`Ok, will remind about *${taskName}*`, res);
             }
-
-            // For any day
-            else {
-                if (testInput(query)) {
-                    const dateMonthString = query[3];
-                    var date = parseInt(dateMonthString.split('/')[0]);
-                    var month = parseInt(dateMonthString.split('/')[1]) - 1;
-                    const isoString = new Date(year, month, date, hours, minutes, 0, 0).toISOString();
-                    const taskTime = isoString.slice(0, 16);
-                    console.log(`Reminder created for *${taskTime}*`);
-                    const taskInfo = new Reminder({
-                        taskName: taskName,
-                        taskTime: taskTime,
-                        taskTimeOG: new Date(year, month, date, hours, minutes, 0, 0).toDateString().slice(0, 16) + " at " + new Date(year, month, date, hours, minutes, 0, 0).toTimeString().slice(0, 5),
-                        clientNumber: clientNumber
-                    });
-                    taskInfo.save((err) => {
-                        if (err) {
-                            console.log(err)
-                        } else {
-                            sendMessage(`Ok, will remind you about *${taskName}*`, res);
-                        }
-                    });
-                } else {
-                    sendMessage("Please enter valid inputs and try again. Possible error: *Inputs not according to specified format* or *Reminder time given in past* (I hope you know time travel isn't possible yet)", res);
-                }
-            }
-        }
+        });
     }
 
     // View reminders
-    else if (action === "view") {
+    else if (_.lowerCase(action) === "view") {
         console.log("view");
         Reminder.find(
             { clientNumber: clientNumber },
