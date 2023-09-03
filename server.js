@@ -136,14 +136,21 @@ app.post("/incoming", (req, res) => {
         return
     }
 
+    const taskName = sentence.replace(date_entity, '').replace(time_entity, '').trim();
+
+    [/\d\d\d(am|pm|AM|PM)/g, /\d\d\d\d(am|pm|AM|PM)/g].forEach(regex => {
+        const found = sentence.match(regex);
+        if(found) {
+            part = found[0].substring(found[0].length, found[0].length-2).toUpperCase();
+            hour = found[0].substring(0, found[0].length-4);
+            minute = found[0].substring(found[0].length-2, found[0].length-4);
+            time_entity = ("0" + hour).slice(-2)+":"+("0" + minute).slice(-2)+part;
+        }
+    });
+
     if(time_entity == undefined) {
         let hour = "", minute = "";
-        // const found = sentence.match(/\d\d\d\d/g);
-        // if(found) {
-        //     hour = found[0].substring(0, 2);
-        //     minute = found[0].substring(2);
-        // }
-
+        let part = "AM";
         [/\d:\d\d/g, /\d\d:\d\d/g].forEach(regex => {
             const found = sentence.match(regex);
             if(found) {
@@ -153,14 +160,12 @@ app.post("/incoming", (req, res) => {
 
         hour = parseInt(hour);
         minute = parseInt(minute);
-        let part = "AM";
         if(hour => 12 && hour <= 24) {hour -= 12; part = "PM"}
         if(hour >= 0 && hour < 12 && minute >= 0 && minute < 60) {
             time_entity = ("0" + hour).slice(-2)+":"+("0" + minute).slice(-2)+part;
         }   
     }
 
-    const taskName = sentence.replace(date_entity, '').replace(time_entity, '').trim();
     let taskTime = moment(sugar.Date.create(date_entity +" "+ time_entity, { fromUTC: true })) 
         .add(timezoneOffset, "minutes").toDate();
     
