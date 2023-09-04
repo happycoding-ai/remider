@@ -39,7 +39,7 @@ const reminderSchema = new mongoose.Schema({
     taskName: String,
     taskTime: Date,
     taskTimeOG: String,
-    clientNumber: String
+    mobile: String
 });
 
 const clientSchema = new mongoose.Schema({
@@ -74,7 +74,7 @@ cron.schedule('* * * * *', () => {
                         .create({
                             body: `Your Reminder *${task.taskName}*.`,
                             from: "whatsapp:" + process.env.SERVER_NUMBER,
-                            to: "whatsapp:" + task.clientNumber
+                            to: "whatsapp:" + task.mobile
                         }, (err, response) => {
                             if (err) {
                                 console.log(err);
@@ -143,7 +143,7 @@ app.post("/incoming", asyncHandler(async (req, res) => {
     if (_.lowerCase(sentence.split(' ')[0]) === "view") {
         console.log("view");
         Reminder.find(
-            { clientNumber: mobile },
+            { mobile },
             (err, foundTasks) => {
                 if (err) {
                     console.log(err);
@@ -204,10 +204,10 @@ app.post("/incoming", asyncHandler(async (req, res) => {
     // Creating reminders
     console.log(`Reminder created for: ${taskTime}`);
     const taskInfo = new Reminder({
-        taskName: taskName,
-        taskTime: taskTime,
+        taskName,
+        taskTime,
         taskTimeOG: taskTime.toDateString().slice(0, 16) + " at " + taskTime.toTimeString().slice(0, 5),
-        clientNumber: mobile
+        mobile
     });
     taskInfo.save((err) => {
         if (err) {
