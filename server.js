@@ -41,12 +41,20 @@ const reminderSchema = new mongoose.Schema({
     clientNumber: String
 });
 
+const clientSchema = new mongoose.Schema({
+    mobile: String,
+    name: String,
+    timeZone: String,
+    Status: String
+});
+
 //reminderSchema.plugin(encrypt, {
   //  encryptionKey: encKey,
   //  signingKey: sigKey,
   //  encryptedFields: ['taskName']
 //});
 const Reminder = mongoose.model('Reminder', reminderSchema);
+const CleintTB = mongoose.model('CleintTB', clientSchema);
 
 // Searches the database for reminders per minute
 cron.schedule('* * * * *', () => {
@@ -92,10 +100,27 @@ cron.schedule('* * * * *', () => {
     console.log("Search complete");
 });
 
+app.post("/save", (req, res) => {
+	const clientInfo = new CleintTB({
+        mobile: req.mobile,
+        name: req.name,
+        timeZone: req.timeZone,
+        status: req.status,        
+    });
+	
+    clientInfo.save((err) => {
+        if (err) {
+            console.log(err)
+        } else {
+            sendMessage(`Save the client information`, res);
+        }
+    });	
+});
+
 // Handles incoming messages
 app.post("/incoming", (req, res) => {
     const clientNumber = extractClientNumber(req.body.From);
-    const timezoneOffset = req.body.TimezoneOffset;
+    const timezoneOffset = req.body.TimezoneOffset; // TODO: Please remove this TZ should come from the client schema not in payload
 
     if(typeof(timezoneOffset) !== "number") {
         sendMessage("timezoneOffset should be in minutes as number", res);
@@ -178,14 +203,14 @@ app.post("/incoming", (req, res) => {
     }
     
     let taskTime = moment(sugar.Date.create(date_entity +" "+ time_entity, { fromUTC: true })) 
-        .add(timezoneOffset, "minutes").toDate();
-    
+        .add(timezoneOffset, "minutes").toDate(); // Need to be based client timezone (Value could be Asia/Kolkata or Asia/Singapore etc)
+    console.log(taskTime);
     if(isNaN(taskTime)) {
         sendMessage("Please enter your date and time properly. Ex: Jan 30 at 2am or 30th Jan at 2am", res);
         return;
     }
 
-    if(new Date() >= taskTime) {
+    if(new Date() >= taskTime) { // This validation is failing now
         if(!date_entity.includes(taskTime.getFullYear().toString())) {
             taskTime = moment(taskTime).add(1, "year").toDate();
         } else {
