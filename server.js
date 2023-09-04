@@ -8,20 +8,20 @@ const _ = require("lodash");
 const cron = require("node-cron");
 const moment = require("moment-timezone");
 const app = express();
-const {sendMessage} = require("./utils/utils.js");
+const { sendMessage, moreFilterTaskTime } = require("./utils/utils.js");
 const asyncHandler = require('express-async-handler')
 
 const SID = process.env.SID;
 const AUTH_TOKEN = process.env.AUTH_TOKEN;
-if(process.env.USE_TWILIO != "no") {
+if (process.env.USE_TWILIO != "no") {
     client = new twilio(SID, AUTH_TOKEN);
 }
 
 const sugar = require('sugar')
 
-const winkNLP = require( 'wink-nlp' );
-const model = require( 'wink-eng-lite-web-model' );
-const nlp = winkNLP( model );
+const winkNLP = require('wink-nlp');
+const model = require('wink-eng-lite-web-model');
+const nlp = winkNLP(model);
 const its = nlp.its;
 const as = nlp.as;
 
@@ -50,26 +50,26 @@ const clientSchema = new mongoose.Schema({
 });
 
 //reminderSchema.plugin(encrypt, {
-  //  encryptionKey: encKey,
-  //  signingKey: sigKey,
-  //  encryptedFields: ['taskName']
+//  encryptionKey: encKey,
+//  signingKey: sigKey,
+//  encryptedFields: ['taskName']
 //});
 const Reminder = mongoose.model('Reminder', reminderSchema);
-const CleintTB = mongoose.model('CleintTB', clientSchema);
+const ClientInfo = mongoose.model('CleintTB', clientSchema);
 
 // Searches the database for reminders per minute
 cron.schedule('* * * * *', () => {
     console.log("Checking database...");
     const currTime = new Date();
     console.log(currTime);
-    Reminder.find({ taskTime: {$lte: currTime} }, (err, tasks) => {
+    Reminder.find({ taskTime: { $lte: currTime } }, (err, tasks) => {
         if (err) {
             console.log(err);
         } else {
 
             // Creating a throttled function that sends messages slowly
             var throttledFunction = _.throttle((task) => {
-                if(process.env.USE_TWILIO != "no") {
+                if (process.env.USE_TWILIO != "no") {
                     client.messages
                         .create({
                             body: `Your Reminder *${task.taskName}*.`,
@@ -79,7 +79,7 @@ cron.schedule('* * * * *', () => {
                             if (err) {
                                 console.log(err);
                             } else {
-                                console.log(`Sent a message!`+ response);
+                                console.log(`Sent a message!` + response);
                             }
                         }).then(message => console.log(message));
                 } else {
@@ -102,45 +102,48 @@ cron.schedule('* * * * *', () => {
 });
 
 app.post("/save", (req, res) => {
-    if(req.body.Mobile == undefined || req.body.Name == undefined || req.body.Timezone == undefined) {
+    const mobile = req.body.mobile;
+    const name = req.body.name;
+    const timezone = req.body.timezone;
+    const status = req.body.status;
+
+    if (mobile == undefined || name == undefined || timezone == undefined) {
         sendMessage(`mobile, name, timezone is missing`, res);
         return
     }
 
-	const clientInfo = new CleintTB({
-        mobile: req.body.Mobile,
-        name: req.body.Name,
-        timezone: req.body.Timezone,
-        status: req.body.Status,        
+    const clientInfo = new ClientInfo({
+        mobile,
+        name,
+        timezone,
+        status
     });
-	
+
     clientInfo.save((err) => {
         if (err) {
             console.log(err)
         } else {
             sendMessage(`Save the client information`, res);
         }
-    });	
+    });
 });
 
 // Handles incoming messages
 app.post("/incoming", asyncHandler(async (req, res) => {
-    const clientNumber = req.body.From;
-    const clientInfo = await CleintTB.findOne({mobile: clientNumber}).exec();
+    const mobile = req.body.mobile;
+    const sentence = req.body.body;
+    const clientInfo = await ClientInfo.findOne({ mobile }).exec();
 
-    if(clientNumber == undefined) {
-        sendMessage(`Wrong client information`, res);
+    if (mobile == undefined || sentence == undefined) {
+        sendMessage(`mobile, sentence is missing`, res);
         return;
     }
 
-    const timezoneOffset = moment().tz(clientInfo.timezone).utcOffset() * -1;
-    console.log(timezoneOffset);
-
     // View Reminders
-    if (_.lowerCase(req.body.Body.split(' ')[0]) === "view") {
+    if (_.lowerCase(sentence.split(' ')[0]) === "view") {
         console.log("view");
         Reminder.find(
-            { clientNumber: clientNumber },
+            { clientNumber: mobile },
             (err, foundTasks) => {
                 if (err) {
                     console.log(err);
@@ -157,68 +160,38 @@ app.post("/incoming", asyncHandler(async (req, res) => {
             }
         );
         return;
-    } 
+    }
 
-    const sentence = req.body.Body;
+    const timezoneOffset = moment().tz(clientInfo.timezone).utcOffset() * -1;
+
     const doc = nlp.readDoc(sentence);
     const entities = doc.entities().out(its.detail);
-    const date_entity = entities.find(e => e.type == 'DATE')?.value;
+    let date_entity = entities.find(e => e.type == 'DATE')?.value;
     let time_entity = entities.find(e => e.type == 'TIME')?.value;
 
-    if(date_entity == undefined && time_entity == undefined) {
+    [time_entity, replace_text] = moreFilterTaskTime(time_entity, sentence);
+    let taskName = sentence.replace(date_entity, '').replace(replace_text, '').trim();
+
+
+    if (date_entity == undefined && time_entity == undefined) {
         sendMessage("I don't know what that means. Please check with Help command to create proper reminder.", res);
         return
+    } else if (date_entity == undefined && time_entity != undefined) {
+        date_entity = "";
     }
 
-    let taskName = sentence.replace(date_entity, '').replace(time_entity, '').trim();
-    
-    let found = (time_entity != undefined) ? time_entity.match(/\d{3,4}\ {0,2}(am|pm|AM|PM)/g) :
-        sentence.match(/\d{3,4}\ {0,2}(am|pm|AM|PM)/g);
-    if(found) {
-        taskName = taskName.replace(found, '').trim();
-        found[0] = found[0].replace(' ', '');
-        part = found[0].substring(found[0].length, found[0].length-2).toUpperCase();
-        hour = found[0].substring(0, found[0].length-4);
-        minute = found[0].substring(found[0].length-2, found[0].length-4);
-        time_entity = ("0" + hour).slice(-2)+":"+("0" + minute).slice(-2)+part;
-    }
 
-    if(time_entity == undefined) {
-        let hour = "", minute = "";
-        let part = "AM";
-        let found = sentence.match(/\d{1,2}:\d\d/g);
-        if(found) {
-            final_match = found[0];
-            [hour, minute] = found[0].split(":");
-        }
-
-        found = sentence.match(/\d{1,2}:\d\d/g);
-
-        taskName = taskName.replace(found, "").trim();
-        
-        hour = parseInt(hour);
-        minute = parseInt(minute);
-        
-        if(hour >= 12 && hour <= 24) {
-            hour -= 12; 
-            part = "PM";
-        }
-        
-        if(hour >= 0 && hour < 12 && minute >= 0 && minute < 60) {
-            time_entity = ("0" + hour).slice(-2)+":"+("0" + minute).slice(-2)+part;
-        }   
-    }
-    
-    let taskTime = moment(sugar.Date.create(date_entity +" "+ time_entity, { fromUTC: true })) 
-        .add(timezoneOffset, "minutes").toDate(); // Need to be based client timezone (Value could be Asia/Kolkata or Asia/Singapore etc)
+    // A small circus is done to create Date Object based on time at user's timezone
+    let taskTime = moment(sugar.Date.create(date_entity + " " + time_entity, { fromUTC: true }))
+        .add(timezoneOffset, "minutes").toDate();
     console.log(taskTime);
-    if(isNaN(taskTime)) {
+    if (isNaN(taskTime)) {
         sendMessage("Please enter your date and time properly. Ex: Jan 30 at 2am or 30th Jan at 2am", res);
         return;
     }
 
-    if(new Date() >= taskTime) { // This validation is failing now
-        if(!date_entity.includes(taskTime.getFullYear().toString()) &&
+    if (new Date() >= taskTime) {
+        if (!date_entity.includes(taskTime.getFullYear().toString()) &&
             new Date().toDateString() != taskTime.toDateString()) {
             taskTime = moment(taskTime).add(1, "year").toDate();
         } else {
@@ -227,14 +200,14 @@ app.post("/incoming", asyncHandler(async (req, res) => {
         }
     }
 
-    
+
     // Creating reminders
     console.log(`Reminder created for: ${taskTime}`);
     const taskInfo = new Reminder({
         taskName: taskName,
         taskTime: taskTime,
         taskTimeOG: taskTime.toDateString().slice(0, 16) + " at " + taskTime.toTimeString().slice(0, 5),
-        clientNumber: clientNumber
+        clientNumber: mobile
     });
     taskInfo.save((err) => {
         if (err) {
