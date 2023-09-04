@@ -8,7 +8,8 @@ const _ = require("lodash");
 const cron = require("node-cron");
 const moment = require("moment-timezone");
 const app = express();
-const { extractClientNumber, sendMessage, testInput } = require("./utils/utils.js");
+const {sendMessage} = require("./utils/utils.js");
+const asyncHandler = require('express-async-handler')
 
 const SID = process.env.SID;
 const AUTH_TOKEN = process.env.AUTH_TOKEN;
@@ -44,7 +45,7 @@ const reminderSchema = new mongoose.Schema({
 const clientSchema = new mongoose.Schema({
     mobile: String,
     name: String,
-    timeZone: String,
+    timezone: String,
     Status: String
 });
 
@@ -101,11 +102,16 @@ cron.schedule('* * * * *', () => {
 });
 
 app.post("/save", (req, res) => {
+    if(req.body.Mobile == undefined || req.body.Name == undefined || req.body.Timezone == undefined) {
+        sendMessage(`mobile, name, timezone is missing`, res);
+        return
+    }
+
 	const clientInfo = new CleintTB({
-        mobile: req.mobile,
-        name: req.name,
-        timeZone: req.timeZone,
-        status: req.status,        
+        mobile: req.body.Mobile,
+        name: req.body.Name,
+        timezone: req.body.Timezone,
+        status: req.body.Status,        
     });
 	
     clientInfo.save((err) => {
@@ -118,14 +124,17 @@ app.post("/save", (req, res) => {
 });
 
 // Handles incoming messages
-app.post("/incoming", (req, res) => {
-    const clientNumber = extractClientNumber(req.body.From);
-    const timezoneOffset = req.body.TimezoneOffset; // TODO: Please remove this TZ should come from the client schema not in payload
+app.post("/incoming", asyncHandler(async (req, res) => {
+    const clientNumber = req.body.From;
+    const clientInfo = await CleintTB.findOne({mobile: clientNumber}).exec();
 
-    if(typeof(timezoneOffset) !== "number") {
-        sendMessage("timezoneOffset should be in minutes as number", res);
+    if(clientNumber == undefined) {
+        sendMessage(`Wrong client information`, res);
         return;
     }
+
+    const timezoneOffset = moment().tz(clientInfo.timezone).utcOffset() * -1;
+    console.log(timezoneOffset);
 
     // View Reminders
     if (_.lowerCase(req.body.Body.split(' ')[0]) === "view") {
@@ -209,7 +218,8 @@ app.post("/incoming", (req, res) => {
     }
 
     if(new Date() >= taskTime) { // This validation is failing now
-        if(!date_entity.includes(taskTime.getFullYear().toString())) {
+        if(!date_entity.includes(taskTime.getFullYear().toString()) &&
+            new Date().toDateString() != taskTime.toDateString()) {
             taskTime = moment(taskTime).add(1, "year").toDate();
         } else {
             sendMessage("We cannot set your reminder at old date time.", res);
@@ -224,8 +234,7 @@ app.post("/incoming", (req, res) => {
         taskName: taskName,
         taskTime: taskTime,
         taskTimeOG: taskTime.toDateString().slice(0, 16) + " at " + taskTime.toTimeString().slice(0, 5),
-        clientNumber: clientNumber,
-        reminded: false
+        clientNumber: clientNumber
     });
     taskInfo.save((err) => {
         if (err) {
@@ -234,7 +243,7 @@ app.post("/incoming", (req, res) => {
             sendMessage(`Ok, will remind about *${taskName}*`, res);
         }
     });
-});
+}));
 
 app.get("/", (req, res) => {
     res.send("Hi! You've just found the server of Reminder. Welcome");
