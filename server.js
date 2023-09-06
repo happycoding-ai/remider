@@ -106,7 +106,7 @@ app.post("/save", (req, res) => {
     const name = req.body.name;
     const timezone = req.body.timezone;
     const status = req.body.status;
-
+	console.log(mobile + name +timezone+status);
     if (mobile == undefined || name == undefined || timezone == undefined) {
         sendMessage(`mobile, name, timezone is missing`, res);
         return
@@ -130,12 +130,14 @@ app.post("/save", (req, res) => {
 
 // Handles incoming messages
 app.post("/incoming", asyncHandler(async (req, res) => {
-    const mobile = req.body.mobile;
-    const sentence = req.body.body;
+    const mobile = extractClientNumber(req.body.From);
+    const sentence = req.body.Body;
     const clientInfo = await ClientInfo.findOne({ mobile }).exec();
+	console.log(clientInfo);
+	console.log(sentence);
 
-    if (mobile == undefined || sentence == undefined) {
-        sendMessage(`mobile, sentence is missing`, res);
+    if (clientInfo == undefined) {
+        sendMessage(`Please register with us`, res);
         return;
     }
 
