@@ -138,7 +138,7 @@ app.post("/incoming", asyncHandler(async (req, res) => {
     }
 
     // View Reminders
-    if (_.lowerCase(sentence.split(' ')[0]) === "view") {
+    if (sentence.match(/^\ *view\ */i)) {
         console.log("view");
         Reminder.find(
             { mobile },
@@ -148,7 +148,7 @@ app.post("/incoming", asyncHandler(async (req, res) => {
                 } else if (foundTasks.length) {
                     const upcomingTasks = [];
                     foundTasks.forEach((task) => {
-                        var subMessage = `*${task.taskName}* at *${moment.tz(task.taskTime, clientInfo.timezone).format('LLLL')}*`;
+                        var subMessage = `*${task.taskName}* at *${moment.tz(task.taskTime, clientInfo.timezone).format('MMMM Do YYYY h:mm a')}*`;
                         upcomingTasks.push(subMessage);
                     });
                     sendMessage(upcomingTasks.join('\n'), res);
@@ -187,16 +187,16 @@ app.post("/incoming", asyncHandler(async (req, res) => {
 
     let taskTime = sugar.Date.create(date_entity + " " + time_entity);
 
-    console.log(moment.tz(taskTime, clientInfo.timezone).format('LLLL'), clientInfo.timezone);
+    console.log(moment.tz(taskTime, clientInfo.timezone).format('MMMM Do YYYY h:mm a'), clientInfo.timezone);
     if (isNaN(taskTime)) {
         sendMessage("Please enter your date and time properly. Ex: Jan 30 at 2am or 30th Jan at 2am", res);
         return;
     }
 
     // If cencel action
-    if (_.lowerCase(sentence.split(' ')[0]) === "cancel") {
+    if (sentence.match(/^\ *cancel\ */i)) {
         console.log('cancel');
-        taskName = taskName.replace(/^cancel\ +/i, '');
+        taskName = taskName.replace(/^\ *cancel\ */i, '').trim();
         console.log({ taskName, taskTime, mobile })
         Reminder.deleteMany({ taskName, taskTime, mobile }).then(function (data) {
             if (data.deletedCount > 0) {
@@ -222,7 +222,7 @@ app.post("/incoming", asyncHandler(async (req, res) => {
     }
 
     // Creating reminders
-    console.log('Reminder created for:', moment.tz(taskTime, clientInfo.timezone).format('LLLL'), clientInfo.timezone);
+    console.log('Reminder created for:', moment.tz(taskTime, clientInfo.timezone).format('MMMM Do YYYY h:mm a'), clientInfo.timezone);
     const taskInfo = new Reminder({ taskName, taskTime, mobile });
     taskInfo.save((err) => {
         if (err) {
