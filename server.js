@@ -16,9 +16,6 @@ const AUTH_TOKEN = process.env.AUTH_TOKEN;
 if (process.env.USE_TWILIO != "no") {
     client = new twilio(SID, AUTH_TOKEN);
 }
-
-const sugar = require('sugar')
-
 const winkNLP = require('wink-nlp');
 const model = require('wink-eng-lite-web-model');
 const nlp = winkNLP(model);
@@ -163,15 +160,12 @@ app.post("/incoming", asyncHandler(async (req, res) => {
         return;
     }
 
-    const timezoneOffset = moment().tz(clientInfo.timezone).utcOffset() * -1;
-
     const doc = nlp.readDoc(sentence);
     const entities = doc.entities().out(its.detail);
     let date_entity = entities.find(e => e.type == 'DATE')?.value;
     let time_entity = entities.find(e => e.type == 'TIME')?.value;
 
     [time_entity, replace_text] = moreFilterTaskTime(time_entity, sentence);
-    console.log("replace: ", replace_text);
     let taskName = sentence.replace(date_entity, '').replace(replace_text, '').trim();
 
 
@@ -182,11 +176,18 @@ app.post("/incoming", asyncHandler(async (req, res) => {
         date_entity = "";
     }
 
+    const sugar = require('sugar');
+    sugar.Date.setOption('newDateInternal', function () {
+        let d = new Date(), offset;
+        let tz = moment().tz(clientInfo.timezone).utcOffset();
+        offset = (d.getTimezoneOffset() + tz) * 60 * 1000;
+        d.setTime(d.getTime() + offset);
+        return d;
+    });
 
-    // A small circus is done to create Date Object based on time at user's timezone
-    let taskTime = moment(sugar.Date.create(date_entity + " " + time_entity, { fromUTC: true }))
-        .add(timezoneOffset, "minutes").toDate();
-    console.log(taskTime);
+    let taskTime = sugar.Date.create(date_entity + " " + time_entity);
+
+    console.log(moment.tz(taskTime, clientInfo.timezone).format('LLLL'), clientInfo.timezone);
     if (isNaN(taskTime)) {
         sendMessage("Please enter your date and time properly. Ex: Jan 30 at 2am or 30th Jan at 2am", res);
         return;
@@ -221,7 +222,7 @@ app.post("/incoming", asyncHandler(async (req, res) => {
     }
 
     // Creating reminders
-    console.log(`Reminder created for: ${moment.tz(taskTime, clientInfo.timezone).format('LLLL')}`);
+    console.log('Reminder created for:', moment.tz(taskTime, clientInfo.timezone).format('LLLL'), clientInfo.timezone);
     const taskInfo = new Reminder({ taskName, taskTime, mobile });
     taskInfo.save((err) => {
         if (err) {
