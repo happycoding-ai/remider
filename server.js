@@ -8,7 +8,7 @@ const _ = require("lodash");
 const cron = require("node-cron");
 const moment = require("moment-timezone");
 const app = express();
-const { sendMessage, moreFilterTaskTime } = require("./utils/utils.js");
+const { sendMessage, moreFilterTaskTime, extractClientNumber } = require("./utils/utils.js");
 const asyncHandler = require('express-async-handler')
 
 const SID = process.env.SID;
@@ -106,7 +106,7 @@ app.post("/save", (req, res) => {
     const name = req.body.name;
     const timezone = req.body.timezone;
     const status = req.body.status;
-	console.log(mobile + name +timezone+status);
+    console.log(mobile, name, timezone, status);
     if (mobile == undefined || name == undefined || timezone == undefined) {
         sendMessage(`mobile, name, timezone is missing`, res);
         return
@@ -133,8 +133,8 @@ app.post("/incoming", asyncHandler(async (req, res) => {
     const mobile = extractClientNumber(req.body.From);
     const sentence = req.body.Body;
     const clientInfo = await ClientInfo.findOne({ mobile }).exec();
-	console.log(clientInfo);
-	console.log(sentence);
+    console.log(clientInfo);
+    console.log(sentence);
 
     if (clientInfo == undefined) {
         sendMessage(`Please register with us`, res);
