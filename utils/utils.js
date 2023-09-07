@@ -59,12 +59,12 @@ module.exports = {
         let found = (time_entity != undefined) ? time_entity.match(/\d{3,4}\ {0,2}(am|pm|AM|PM)/g) :
             sentence.match(/\d{3,4}\ {0,2}(am|pm|AM|PM)/g);
         if (found) {
+            replace_text = found[0];
             found[0] = found[0].replace(' ', '');
             part = found[0].substring(found[0].length, found[0].length - 2).toUpperCase();
             hour = found[0].substring(0, found[0].length - 4);
             minute = found[0].substring(found[0].length - 2, found[0].length - 4);
             time_entity = ("0" + hour).slice(-2) + ":" + ("0" + minute).slice(-2) + part;
-            replace_text = found;
         }
 
         if (time_entity == undefined) {
@@ -72,24 +72,20 @@ module.exports = {
             let part = "AM";
             let found = sentence.match(/\d{1,2}:\d\d/g);
             if (found) {
-                final_match = found[0];
+                replace_text = found[0];
                 [hour, minute] = found[0].split(":");
-            }
 
-            found = sentence.match(/\d{1,2}:\d\d/g);
+                hour = parseInt(hour);
+                minute = parseInt(minute);
 
-            replace_text = found;
+                if (hour >= 12 && hour <= 24) {
+                    hour -= 12;
+                    part = "PM";
+                }
 
-            hour = parseInt(hour);
-            minute = parseInt(minute);
-
-            if (hour >= 12 && hour <= 24) {
-                hour -= 12;
-                part = "PM";
-            }
-
-            if (hour >= 0 && hour < 12 && minute >= 0 && minute < 60) {
-                time_entity = ("0" + hour).slice(-2) + ":" + ("0" + minute).slice(-2) + part;
+                if (hour >= 0 && hour < 12 && minute >= 0 && minute < 60) {
+                    time_entity = ("0" + hour).slice(-2) + ":" + ("0" + minute).slice(-2) + part;
+                }
             }
         }
 

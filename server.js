@@ -38,7 +38,6 @@ var sigKey = process.env.SOME_64BYTE_BASE64_STRING;
 const reminderSchema = new mongoose.Schema({
     taskName: String,
     taskTime: Date,
-    taskTimeOG: String,
     mobile: String
 });
 
@@ -152,7 +151,7 @@ app.post("/incoming", asyncHandler(async (req, res) => {
                 } else if (foundTasks.length) {
                     const upcomingTasks = [];
                     foundTasks.forEach((task) => {
-                        var subMessage = `*${task.taskName}* at *${task.taskTimeOG}*`;
+                        var subMessage = `*${task.taskName}* at *${moment.tz(task.taskTime, clientInfo.timezone).format('LLLL')}*`;
                         upcomingTasks.push(subMessage);
                     });
                     sendMessage(upcomingTasks.join('\n'), res);
@@ -172,6 +171,7 @@ app.post("/incoming", asyncHandler(async (req, res) => {
     let time_entity = entities.find(e => e.type == 'TIME')?.value;
 
     [time_entity, replace_text] = moreFilterTaskTime(time_entity, sentence);
+    console.log("replace: ", replace_text);
     let taskName = sentence.replace(date_entity, '').replace(replace_text, '').trim();
 
 
@@ -204,11 +204,10 @@ app.post("/incoming", asyncHandler(async (req, res) => {
 
 
     // Creating reminders
-    console.log(`Reminder created for: ${taskTime}`);
+    console.log(`Reminder created for: ${moment.tz(taskTime, clientInfo.timezone).format('LLLL')}`);
     const taskInfo = new Reminder({
         taskName,
         taskTime,
-        taskTimeOG: taskTime.toDateString().slice(0, 16) + " at " + taskTime.toTimeString().slice(0, 5),
         mobile
     });
     taskInfo.save((err) => {
