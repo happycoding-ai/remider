@@ -192,6 +192,24 @@ app.post("/incoming", asyncHandler(async (req, res) => {
         return;
     }
 
+    // If cencel action
+    if (_.lowerCase(sentence.split(' ')[0]) === "cancel") {
+        console.log('cancel');
+        taskName = taskName.replace(/^cancel\ +/i, '');
+        console.log({ taskName, taskTime, mobile })
+        Reminder.deleteMany({ taskName, taskTime, mobile }).then(function (data) {
+            if (data.deletedCount > 0) {
+                sendMessage("Data deleted", res); // Success
+            } else {
+                sendMessage("No such reminder exists", res);
+            }
+        }).catch(function (error) {
+            console.log(error); // Failure
+        });
+        return;
+    }
+
+
     if (new Date() >= taskTime) {
         if (!date_entity.includes(taskTime.getFullYear().toString()) &&
             new Date().toDateString() != taskTime.toDateString()) {
@@ -202,14 +220,9 @@ app.post("/incoming", asyncHandler(async (req, res) => {
         }
     }
 
-
     // Creating reminders
     console.log(`Reminder created for: ${moment.tz(taskTime, clientInfo.timezone).format('LLLL')}`);
-    const taskInfo = new Reminder({
-        taskName,
-        taskTime,
-        mobile
-    });
+    const taskInfo = new Reminder({ taskName, taskTime, mobile });
     taskInfo.save((err) => {
         if (err) {
             console.log(err)
