@@ -133,7 +133,7 @@ app.post("/incoming", asyncHandler(async (req, res) => {
     console.log(sentence);
 
     if (clientInfo == undefined) {
-        sendMessage(`Please register with us`, res);
+        sendMessage(`Please register with us for getting reminder.`, res);
         return;
     }
 
@@ -153,7 +153,7 @@ app.post("/incoming", asyncHandler(async (req, res) => {
                     });
                     sendMessage(upcomingTasks.join('\n'), res);
                 } else if (!foundTasks.length) {
-                    sendMessage("You don't have any upcoming tasks. Create some first. To know how to create type *set* to get insight.", res);
+                    sendMessage("You don't have any upcoming reminders. Create some first. To know how to create Please type help.", res);
                 }
             }
         );
@@ -200,7 +200,7 @@ app.post("/incoming", asyncHandler(async (req, res) => {
         console.log({ taskName, taskTime, mobile })
         Reminder.deleteMany({ taskName, taskTime, mobile }).then(function (data) {
             if (data.deletedCount > 0) {
-                sendMessage("Data deleted", res); // Success
+                sendMessage("Reminder deleted", res); // Success
             } else {
                 sendMessage("No such reminder exists", res);
             }
