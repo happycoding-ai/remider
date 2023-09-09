@@ -26,7 +26,7 @@ app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
 
 // Connecting to database
-mongoose.connect(process.env.DB_URI, { useNewUrlParser: true, useUnifiedTopology: true })
+mongoose.connect(process.env.DB_URI, { useNewUrlParser: true, useUnifiedTopology: true, useFindAndModify: true })
 
 var encKey = process.env.SOME_32BYTE_BASE64_STRING;
 var sigKey = process.env.SOME_64BYTE_BASE64_STRING;
@@ -39,7 +39,7 @@ const reminderSchema = new mongoose.Schema({
 });
 
 const clientSchema = new mongoose.Schema({
-    mobile: String,
+    mobile: { type: String, index: { unique: true }, required: true },
     name: String,
     timezone: String,
     Status: String
@@ -52,6 +52,7 @@ const clientSchema = new mongoose.Schema({
 //});
 const Reminder = mongoose.model('Reminder', reminderSchema);
 const ClientInfo = mongoose.model('CleintTB', clientSchema);
+
 
 // Searches the database for reminders per minute
 cron.schedule('* * * * *', () => {
@@ -117,7 +118,17 @@ app.post("/save", (req, res) => {
 
     clientInfo.save((err) => {
         if (err) {
-            console.log(err)
+            if (err.message.split(" ")[0] === "E11000") {
+                ClientInfo.findOneAndUpdate({ mobile }, { name, timezone, status }, (err) => {
+                    if (err) {
+                        console.log(err)
+                    } else {
+                        sendMessage(`Save the client information`, res);
+                    }
+                });
+            } else {
+                console.log(err)
+            }
         } else {
             sendMessage(`Save the client information`, res);
         }
