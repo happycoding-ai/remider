@@ -8,7 +8,7 @@ const _ = require("lodash");
 const cron = require("node-cron");
 const moment = require("moment-timezone");
 const app = express();
-const { sendMessage, moreFilterTaskTime, extractClientNumber } = require("./utils/utils.js");
+const { sendMessage, moreFilterTaskTime, extractClientNumber, curretTimeAsPerTimezone } = require("./utils/utils.js");
 const asyncHandler = require('express-async-handler')
 
 const SID = process.env.SID;
@@ -160,18 +160,9 @@ app.post("/incoming", asyncHandler(async (req, res) => {
         return;
     }
 
-    const doc = nlp.readDoc(sentence);
-    const entities = doc.entities().out(its.detail);
-    let date_entity = entities.find(e => e.type == 'DATE')?.value;
-    let time_entity = entities.find(e => e.type == 'TIME')?.value;
-
-    [time_entity, replace_text] = moreFilterTaskTime(time_entity, sentence);
-    let taskName = sentence.replace(date_entity, '').replace(replace_text, '').trim();
-
     // If cencel all action
     if (sentence.match(/^\ *cancel\ *all\ */i)) {
-        console.log('cancel');
-        taskName = taskName.replace(/^\ *cancel\ */i, '').trim();
+        console.log('cancel all');
         console.log({ mobile })
         Reminder.deleteMany({ mobile }).then(function (data) {
             if (data.deletedCount > 0) {
@@ -185,6 +176,14 @@ app.post("/incoming", asyncHandler(async (req, res) => {
         return;
     }
 
+    const doc = nlp.readDoc(sentence);
+    const entities = doc.entities().out(its.detail);
+    let date_entity = entities.find(e => e.type == 'DATE')?.value;
+    let time_entity = entities.find(e => e.type == 'TIME')?.value;
+
+    [time_entity, replace_text] = moreFilterTaskTime(time_entity, sentence);
+    let taskName = sentence.replace(date_entity, '').replace(replace_text, '').trim();
+
     if (date_entity == undefined && time_entity == undefined) {
         sendMessage("I don't know what that means. Please check with Help command to create proper reminder.", res);
         return
@@ -194,14 +193,25 @@ app.post("/incoming", asyncHandler(async (req, res) => {
 
     const sugar = require('sugar');
     sugar.Date.setOption('newDateInternal', function () {
-        let d = new Date(), offset;
-        let tz = moment().tz(clientInfo.timezone).utcOffset();
-        offset = (d.getTimezoneOffset() + tz) * 60 * 1000;
-        d.setTime(d.getTime() + offset);
-        return d;
+        return curretTimeAsPerTimezone(clientInfo.timezone);
     });
 
     let taskTime = sugar.Date.create(date_entity + " " + time_entity);
+
+    // console.log(curretTimeAsPerTimezone(clientInfo.timezone).toString(), taskTime.toString());
+    if (curretTimeAsPerTimezone(clientInfo.timezone) >= taskTime) {
+        if (!date_entity.includes(taskTime.getFullYear().toString()) &&
+            curretTimeAsPerTimezone(clientInfo.timezone).toDateString() != taskTime.toDateString()) {
+            taskTime = moment(taskTime).add(1, "year").toDate();
+        } else {
+            sendMessage("We cannot set your reminder at old date time.", res);
+            return;
+        }
+    }
+
+    let tz = moment().tz(clientInfo.timezone).utcOffset();
+    let offset = (taskTime.getTimezoneOffset() + tz) * 60 * 1000 * -1;
+    taskTime.setTime(taskTime.getTime() + offset);
 
     console.log(moment.tz(taskTime, clientInfo.timezone).format('MMMM Do YYYY h:mm a'), clientInfo.timezone);
     if (isNaN(taskTime)) {
@@ -224,17 +234,6 @@ app.post("/incoming", asyncHandler(async (req, res) => {
             console.log(error); // Failure
         });
         return;
-    }
-
-
-    if (new Date() >= taskTime) {
-        if (!date_entity.includes(taskTime.getFullYear().toString()) &&
-            new Date().toDateString() != taskTime.toDateString()) {
-            taskTime = moment(taskTime).add(1, "year").toDate();
-        } else {
-            sendMessage("We cannot set your reminder at old date time.", res);
-            return;
-        }
     }
 
     // Creating reminders

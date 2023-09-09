@@ -91,5 +91,11 @@ module.exports = {
 
         if (replace_text == null) replace_text = time_entity;
         return [time_entity, replace_text]
+    }, curretTimeAsPerTimezone: (timezone) => {
+        let d = new Date(), offset;
+        let tz = moment().tz(timezone).utcOffset();
+        offset = (d.getTimezoneOffset() + tz) * 60 * 1000;
+        d.setTime(d.getTime() + offset);
+        return d;
     }
 };
