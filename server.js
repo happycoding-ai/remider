@@ -168,6 +168,22 @@ app.post("/incoming", asyncHandler(async (req, res) => {
     [time_entity, replace_text] = moreFilterTaskTime(time_entity, sentence);
     let taskName = sentence.replace(date_entity, '').replace(replace_text, '').trim();
 
+    // If cencel all action
+    if (sentence.match(/^\ *cancel\ *all\ */i)) {
+        console.log('cancel');
+        taskName = taskName.replace(/^\ *cancel\ */i, '').trim();
+        console.log({ mobile })
+        Reminder.deleteMany({ mobile }).then(function (data) {
+            if (data.deletedCount > 0) {
+                sendMessage("Data deleted", res); // Success
+            } else {
+                sendMessage("No such reminder exists", res);
+            }
+        }).catch(function (error) {
+            console.log(error); // Failure
+        });
+        return;
+    }
 
     if (date_entity == undefined && time_entity == undefined) {
         sendMessage("I don't know what that means. Please check with Help command to create proper reminder.", res);
