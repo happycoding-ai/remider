@@ -69,7 +69,7 @@ cron.schedule('* * * * *', () => {
                 if (process.env.USE_TWILIO != "no") {
                     client.messages
                         .create({
-                            body: `Your Reminder *${task.taskName}*.`,
+                            body: `Your Reminder: ${task.taskName}`,
                             from: "whatsapp:" + process.env.SERVER_NUMBER,
                             to: "whatsapp:" + task.mobile
                         }, (err, response) => {
@@ -124,6 +124,19 @@ app.post("/save", (req, res) => {
                         console.log(err)
                     } else {
                         sendMessage(`Save the client information`, res);
+                        
+                        client.messages
+                        .create({
+                            body: `Welcome to *Whtsapp Reminders*. This is our first version, and we hope to continue to improve it with your support.  \n\nTo create a Reminder, just type it as you would write it to a person. For eg “dinner with friends next tue 730pm” or “730pm dinner with friends 12 oct”. \n\nMainly each reminder has a topic, a date or day, and time (in am/pm format), written in any order. Do note that a month or a day can be written in full form (”tuesday) or as 3 letters (”tue”). If you don't indicate a day or date, it will use today’s date.\n\nThe time zone you provide will be used to remind you, and we will send a message exactly at the time you requested the reminder.`,
+                            from: "whatsapp:" + process.env.SERVER_NUMBER,
+                            to: "whatsapp:" + mobile
+                        }, (err, response) => {
+                            if (err) {
+                                console.log(err);
+                            } else {
+                                console.log(`Sent a message!` + response);
+                            }
+                        }).then(message => console.log(message));
                     }
                 });
             } else {
@@ -140,16 +153,13 @@ app.post("/incoming", asyncHandler(async (req, res) => {
     const mobile = extractClientNumber(req.body.From);
     const sentence = req.body.Body;
     const clientInfo = await ClientInfo.findOne({ mobile }).exec();
-    console.log(clientInfo);
-    console.log(sentence);
 
     if (clientInfo == undefined) {
         sendMessage(`Please register with us for getting reminder.`, res);
         return;
     }
-
-    // View Reminders
-    if (sentence.match(/^\ *view\ */i)) {
+   // View Reminders
+    if (sentence.match(/^\ *View all\ */i)) {
         console.log("view");
         Reminder.find(
             { mobile },
@@ -159,15 +169,52 @@ app.post("/incoming", asyncHandler(async (req, res) => {
                 } else if (foundTasks.length) {
                     const upcomingTasks = [];
                     foundTasks.forEach((task) => {
-                        var subMessage = `*${task.taskName}* at *${moment.tz(task.taskTime, clientInfo.timezone).format('MMMM Do YYYY h:mm a')}*`;
-                        upcomingTasks.push(subMessage);
+                       // var subMessage = `*${task.taskName}* at *${moment.tz(task.taskTime, clientInfo.timezone).format('MMMM Do YYYY h:mm a')}* \n`;
+                        client.messages
+                        .create({
+                            body: `*${task.taskName}* at ${moment.tz(task.taskTime, clientInfo.timezone).format('MMMM Do YYYY h:mm a')}.`,
+                            from: "whatsapp:" + process.env.SERVER_NUMBER,
+                            to: "whatsapp:" + mobile
+                        }, (err, response) => {
+                            if (err) {
+                                console.log(err);
+                            } else {
+                                console.log(`Sent a message!` + response);
+                            }
+                        }).then(message => console.log(message));
                     });
-                    sendMessage(upcomingTasks.join('\n'), res);
                 } else if (!foundTasks.length) {
-                    sendMessage("You don't have any upcoming reminders. Create some first. To know how to create Please type help.", res);
+                    sendMessage("It appears you have no scheduled reminders", res);
                 }
             }
         );
+        return;
+    }
+    // If Delete Action
+    if (sentence.match(/^\ *Delete\ */i)) {
+        console.log('Delete'+req.body.OriginalRepliedMessageSid);
+        var strFull ="";
+        await client.messages(req.body.OriginalRepliedMessageSid)
+        .fetch()
+        .then(message => {
+         strFull = message.body;
+         });
+         var strFull=str.split('at');
+         if(strFull.length == 2){
+         var taskNameDel=strFull[0].replace("Ok 👍, your reminder is set ", '').replaceAll("*",'');
+         var taskTimeDel=strFull[1].trim().replace(".",'');
+         console.log(taskNameDel + "   "+ taskTimeDel);
+    
+         Reminder.deleteMany({ taskTime: { $lte: taskTimeDel }, taskName: taskNameDel, mobile: mobile} ).then(function (data) {
+            if (data.deletedCount > 0) {
+                sendMessage("Noted! Reminder removed from list", res); // Success
+            } else {
+                sendMessage("No such reminder exists", res);
+            }
+        }).catch(function (error) {
+            console.log(error); // Failure
+        });
+        }
         return;
     }
 
@@ -194,9 +241,9 @@ app.post("/incoming", asyncHandler(async (req, res) => {
 
     [time_entity, replace_text] = moreFilterTaskTime(time_entity, sentence);
     let taskName = sentence.replace(date_entity, '').replace(replace_text, '').trim();
-
+    console.log(date_entity + "  "+ time_entity);
     if (date_entity == undefined && time_entity == undefined) {
-        sendMessage("I don't know what that means. Please check with Help command to create proper reminder.", res);
+        sendMessage("Sorry 🙃, we were unable to recognize your input, Here are some tips:- \n\n• We can only recognize limited responses related to scheduling, viewing, deleting Reminders \n\n• Each reminder has a subject, a day/date, and time \n\n Accepted options for day/date include “next tue” or “next tuesday”, “today”, “tomorrow”, “12 sept”, “sept 12” \n\n• Accepted options for time include “9:30pm”, “930 pm”. We don't accept 24hrs time format yet \n\n• If you have other issues or feedback, you may email us at whtsappt@gmail.com \n", res);
         return
     } else if (date_entity == undefined && time_entity != undefined) {
         date_entity = "";
@@ -209,13 +256,12 @@ app.post("/incoming", asyncHandler(async (req, res) => {
 
     let taskTime = sugar.Date.create(date_entity + " " + time_entity);
 
-    // console.log(curretTimeAsPerTimezone(clientInfo.timezone).toString(), taskTime.toString());
     if (curretTimeAsPerTimezone(clientInfo.timezone) >= taskTime) {
         if (!date_entity.includes(taskTime.getFullYear().toString()) &&
             curretTimeAsPerTimezone(clientInfo.timezone).toDateString() != taskTime.toDateString()) {
             taskTime = moment(taskTime).add(1, "year").toDate();
         } else {
-            sendMessage("We cannot set your reminder at old date time.", res);
+            sendMessage("We cannot set your reminder at old date time", res);
             return;
         }
     }
@@ -224,40 +270,23 @@ app.post("/incoming", asyncHandler(async (req, res) => {
     let offset = (taskTime.getTimezoneOffset() + tz) * 60 * 1000 * -1;
     taskTime.setTime(taskTime.getTime() + offset);
 
-    console.log(moment.tz(taskTime, clientInfo.timezone).format('MMMM Do YYYY h:mm a'), clientInfo.timezone);
     if (isNaN(taskTime)) {
         sendMessage("Please enter your date and time properly. Ex: Jan 30 at 2am or 30th Jan at 2am", res);
         return;
     }
 
-    // If cencel action
-    if (sentence.match(/^\ *cancel\ */i)) {
-        console.log('cancel');
-        taskName = taskName.replace(/^\ *cancel\ */i, '').trim();
-        console.log({ taskName, taskTime, mobile })
-        Reminder.deleteMany({ taskName, taskTime, mobile }).then(function (data) {
-            if (data.deletedCount > 0) {
-                sendMessage("Reminder deleted", res); // Success
-            } else {
-                sendMessage("No such reminder exists", res);
-            }
-        }).catch(function (error) {
-            console.log(error); // Failure
-        });
-        return;
-    }
-
     // Creating reminders
-    console.log('Reminder created for:', moment.tz(taskTime, clientInfo.timezone).format('MMMM Do YYYY h:mm a'), clientInfo.timezone);
+    console.log('Reminder created for:', moment.tz(taskTime, clientInfo.timezone).format('YYYY-MM-DDTHH:mm'), clientInfo.timezone);
     const taskInfo = new Reminder({ taskName, taskTime, mobile });
     taskInfo.save((err) => {
         if (err) {
             console.log(err)
         } else {
-            sendMessage(`Ok, will remind about *${taskName}*`, res);
+            console.log(taskName);
+            taskTime= moment.tz(taskTime, clientInfo.timezone).format('MMMM Do YYYY, h:mm a');           
+            sendMessage(`Ok 👍, your reminder is set \n*${taskName}* at, \n${taskTime}`, res);
         }
-    });
-}));
+});
 
 app.get("/", (req, res) => {
     res.send("Hi! You've just found the server of Reminder. Welcome");
