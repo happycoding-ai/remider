@@ -7,6 +7,7 @@ const bodyParser = require('body-parser');
 const _ = require("lodash");
 const cron = require("node-cron");
 const moment = require("moment-timezone");
+const date = require('date-and-time');
 const app = express();
 const { sendMessage, moreFilterTaskTime, extractClientNumber, curretTimeAsPerTimezone } = require("./utils/utils.js");
 const asyncHandler = require('express-async-handler')
@@ -63,13 +64,15 @@ cron.schedule('* * * * *', () => {
         if (err) {
             console.log(err);
         } else {
-
             // Creating a throttled function that sends messages slowly
             var throttledFunction = _.throttle((task) => {
+            const clnMobile = `${task.mobile}`;
+            const clientInfo = ClientInfo.findOne({ mobile:{ $eq: clnMobile} }).exec();
+            const taskTime= moment.tz(`${task.taskTime}`, clientInfo.timezone).format('MMMM D, YYYY H:mm:ss');
                 if (process.env.USE_TWILIO != "no") {
                     client.messages
                         .create({
-                            body: `Your Reminder: ${task.taskName}`,
+                            body: `*${task.taskName}* @ ${taskTime}`,
                             from: "whatsapp:" + process.env.SERVER_NUMBER,
                             to: "whatsapp:" + task.mobile
                         }, (err, response) => {
@@ -127,7 +130,7 @@ app.post("/save", (req, res) => {
                         
                         client.messages
                         .create({
-                            body: `Welcome to *Whtsapp Reminders*. This is our first version, and we hope to continue to improve it with your support.  \n\nTo create a Reminder, just type it as you would write it to a person. For eg “dinner with friends next tue 730pm” or “730pm dinner with friends 12 oct”. \n\nMainly each reminder has a topic, a date or day, and time (in am/pm format), written in any order. Do note that a month or a day can be written in full form (”tuesday) or as 3 letters (”tue”). If you don't indicate a day or date, it will use today’s date.\n\nThe time zone you provide will be used to remind you, and we will send a message exactly at the time you requested the reminder.`,
+                            body: `Welcome to *Whtsapp Reminders*. This is our first version, and we hope to continue to improve it with your support.  \n\nTo create a Reminder, just type it as you would write it to a person. For eg “dinner with friends next tue 730pm” or “730pm dinner with friends 12 oct”. \n\nMainly each reminder has a topic, a date or day, and time (in am/pm format), written in any order. Do note that a month or a day can be written in full form (”tuesday") or as 3 letters (”tue”). If you don't indicate a day or date, it will use today’s date.\n\nThe time zone you provide will be used to remind you, and we will send a message exactly at the time you requested the reminder.`,
                             from: "whatsapp:" + process.env.SERVER_NUMBER,
                             to: "whatsapp:" + mobile
                         }, (err, response) => {
@@ -169,10 +172,10 @@ app.post("/incoming", asyncHandler(async (req, res) => {
                 } else if (foundTasks.length) {
                     const upcomingTasks = [];
                     foundTasks.forEach((task) => {
-                       // var subMessage = `*${task.taskName}* at *${moment.tz(task.taskTime, clientInfo.timezone).format('MMMM Do YYYY h:mm a')}* \n`;
+                       // var subMessage = `*${task.taskName}* at *${moment.tz(task.taskTime, clientInfo.timezone).format('MMMM D, YYYY h:mm a')}* \n`;
                         client.messages
                         .create({
-                            body: `*${task.taskName}* at ${moment.tz(task.taskTime, clientInfo.timezone).format('MMMM Do YYYY h:mm a')}.`,
+                            body: `*${task.taskName}* on ${moment.tz(task.taskTime, clientInfo.timezone).format('MMMM D YYYY H:mm:ss')}.`,
                             from: "whatsapp:" + process.env.SERVER_NUMBER,
                             to: "whatsapp:" + mobile
                         }, (err, response) => {
@@ -199,13 +202,14 @@ app.post("/incoming", asyncHandler(async (req, res) => {
         .then(message => {
          strFull = message.body;
          });
-         var strFull=str.split('at');
+         var strFull=strFull.split('on');
          if(strFull.length == 2){
-         var taskNameDel=strFull[0].replace("Ok 👍, your reminder is set ", '').replaceAll("*",'');
+         var taskNameDel=strFull[0].replace("Ok 👍, your reminder is set ", '').trim().replaceAll("*",'');
          var taskTimeDel=strFull[1].trim().replace(".",'');
-         console.log(taskNameDel + "   "+ taskTimeDel);
+         var taskTimeVar=new Date(taskTimeDel);
+         console.log(taskNameDel + "   "+ taskTimeVar);
     
-         Reminder.deleteMany({ taskTime: { $lte: taskTimeDel }, taskName: taskNameDel, mobile: mobile} ).then(function (data) {
+         Reminder.deleteMany({ taskTime: { $lte: taskTimeVar }, taskName: taskNameDel, mobile: mobile} ).then(function (data) {
             if (data.deletedCount > 0) {
                 sendMessage("Noted! Reminder removed from list", res); // Success
             } else {
@@ -280,18 +284,19 @@ app.post("/incoming", asyncHandler(async (req, res) => {
     const taskInfo = new Reminder({ taskName, taskTime, mobile });
     taskInfo.save((err) => {
         if (err) {
-            console.log(err)
+            console.log(err);
         } else {
             console.log(taskName);
-            taskTime= moment.tz(taskTime, clientInfo.timezone).format('MMMM Do YYYY, h:mm a');           
-            sendMessage(`Ok 👍, your reminder is set \n*${taskName}* at, \n${taskTime}`, res);
+            taskTime= moment.tz(taskTime, clientInfo.timezone).format('MMMM D, YYYY H:mm:ss');           
+            sendMessage(`Ok 👍, your reminder is set \n*${taskName}* on \n${taskTime}`, res);
         }
-});
+    });
+}));
 
 app.get("/", (req, res) => {
     res.send("Hi! You've just found the server of Reminder. Welcome");
 });
 
 app.listen(process.env.PORT || 3070, () => {
-    console.log("Server started.");
+    console.log("Server started."); 
 });
