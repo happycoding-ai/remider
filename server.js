@@ -54,9 +54,16 @@ const clientSchema = new mongoose.Schema({
 const Reminder = mongoose.model('Reminder', reminderSchema);
 const ClientInfo = mongoose.model('CleintTB', clientSchema);
 
+async function getClientInfo(mobile)
+{
+ console.log(mobile);
+ const clientInfo =  await ClientInfo.findOne({ mobile }).exec();
+ console.log(clientInfo);
+ return clientInfo;
+}
 
 // Searches the database for reminders per minute
-cron.schedule('* * * * *', () => {
+cron.schedule('* * * * *',  asyncHandler(async (req, res) => {
     console.log("Checking database...");
     const currTime = new Date();
     console.log(currTime);
@@ -65,14 +72,14 @@ cron.schedule('* * * * *', () => {
             console.log(err);
         } else {
             // Creating a throttled function that sends messages slowly
-            var throttledFunction = _.throttle((task) => {
+            var throttledFunction = _.throttle( async (task) => {
             const clnMobile = `${task.mobile}`;
-            const clientInfo = ClientInfo.findOne({ mobile:{ $eq: clnMobile} }).exec();
-            const taskTime= moment.tz(`${task.taskTime}`, clientInfo.timezone).format('MMMM D, YYYY H:mm:ss');
+            const clientInfo = await getClientInfo(clnMobile);
+            console.log(clientInfo.timezone + "   " + task.taskTime);
                 if (process.env.USE_TWILIO != "no") {
                     client.messages
                         .create({
-                            body: `*${task.taskName}* @ ${taskTime}`,
+                            body: `*${task.taskName}* for ${moment.tz(task.taskTime, clientInfo.timezone).format('D MMMM YYYY @ hh:mm a')}`,
                             from: "whatsapp:" + process.env.SERVER_NUMBER,
                             to: "whatsapp:" + task.mobile
                         }, (err, response) => {
@@ -99,7 +106,7 @@ cron.schedule('* * * * *', () => {
         }
     });
     console.log("Search complete");
-});
+}));
 
 app.post("/save", (req, res) => {
     const mobile = req.body.mobile;
@@ -156,7 +163,7 @@ app.post("/incoming", asyncHandler(async (req, res) => {
     const mobile = extractClientNumber(req.body.From);
     const sentence = req.body.Body;
     const clientInfo = await ClientInfo.findOne({ mobile }).exec();
-
+    console.log("Mobiler: "+ mobile + "Text : "+ sentence +" "+ clientInfo.timezone); 
     if (clientInfo == undefined) {
         sendMessage(`Please register with us for getting reminder.`, res);
         return;
@@ -175,7 +182,7 @@ app.post("/incoming", asyncHandler(async (req, res) => {
                        // var subMessage = `*${task.taskName}* at *${moment.tz(task.taskTime, clientInfo.timezone).format('MMMM D, YYYY h:mm a')}* \n`;
                         client.messages
                         .create({
-                            body: `*${task.taskName}* on ${moment.tz(task.taskTime, clientInfo.timezone).format('MMMM D YYYY H:mm:ss')}.`,
+                            body: `*${task.taskName}*  for ${moment.tz(task.taskTime, clientInfo.timezone).format('D MMMM YYYY @ h:mm a')}.`,
                             from: "whatsapp:" + process.env.SERVER_NUMBER,
                             to: "whatsapp:" + mobile
                         }, (err, response) => {
@@ -202,12 +209,12 @@ app.post("/incoming", asyncHandler(async (req, res) => {
         .then(message => {
          strFull = message.body;
          });
-         var strFull=strFull.split('on');
+         var strFull=strFull.split('for');
          if(strFull.length == 2){
-         var taskNameDel=strFull[0].replace("Ok 👍, your reminder is set ", '').trim().replaceAll("*",'');
-         var taskTimeDel=strFull[1].trim().replace(".",'');
+         var taskNameDel=strFull[0].replace("Ok 👍, reminder set ", '').trim().replaceAll("*",'');
+         var taskTimeDel=strFull[1].trim().replace(".",'').replace("@",'');
+         console.log(">>"+taskTimeDel);
          var taskTimeVar=new Date(taskTimeDel);
-         console.log(taskNameDel + "   "+ taskTimeVar);
     
          Reminder.deleteMany({ taskTime: { $lte: taskTimeVar }, taskName: taskNameDel, mobile: mobile} ).then(function (data) {
             if (data.deletedCount > 0) {
@@ -222,21 +229,6 @@ app.post("/incoming", asyncHandler(async (req, res) => {
         return;
     }
 
-    // If cencel all action
-    if (sentence.match(/^\ *cancel\ *all\ */i)) {
-        console.log('cancel all');
-        console.log({ mobile })
-        Reminder.deleteMany({ mobile }).then(function (data) {
-            if (data.deletedCount > 0) {
-                sendMessage("Data deleted", res); // Success
-            } else {
-                sendMessage("No such reminder exists", res);
-            }
-        }).catch(function (error) {
-            console.log(error); // Failure
-        });
-        return;
-    }
 
     const doc = nlp.readDoc(sentence);
     const entities = doc.entities().out(its.detail);
@@ -245,12 +237,13 @@ app.post("/incoming", asyncHandler(async (req, res) => {
 
     [time_entity, replace_text] = moreFilterTaskTime(time_entity, sentence);
     let taskName = sentence.replace(date_entity, '').replace(replace_text, '').trim();
-    console.log(date_entity + "  "+ time_entity);
-    if (date_entity == undefined && time_entity == undefined) {
+    console.log(date_entity + "  "+ time_entity + "  " + taskName);
+    if ((date_entity == undefined && time_entity == undefined) || (!taskName && (date_entity == undefined || time_entity == undefined))) {
         sendMessage("Sorry 🙃, we were unable to recognize your input, Here are some tips:- \n\n• We can only recognize limited responses related to scheduling, viewing, deleting Reminders \n\n• Each reminder has a subject, a day/date, and time \n\n Accepted options for day/date include “next tue” or “next tuesday”, “today”, “tomorrow”, “12 sept”, “sept 12” \n\n• Accepted options for time include “9:30pm”, “930 pm”. We don't accept 24hrs time format yet \n\n• If you have other issues or feedback, you may email us at whtsappt@gmail.com \n", res);
-        return
+        return;
     } else if (date_entity == undefined && time_entity != undefined) {
-        date_entity = "";
+        sendMessage("Error! we are unable to detect a proper date or day in your reminder. Please re-write adding a date (eg. 20 Jan or 20 January) or day (eg. Tue or Tuesday)\n or ‘today’ or ‘tomorrow’", res);
+        return;
     }
 
     const sugar = require('sugar');
@@ -259,13 +252,13 @@ app.post("/incoming", asyncHandler(async (req, res) => {
     });
 
     let taskTime = sugar.Date.create(date_entity + " " + time_entity);
-
+    console.log(taskTime);
     if (curretTimeAsPerTimezone(clientInfo.timezone) >= taskTime) {
         if (!date_entity.includes(taskTime.getFullYear().toString()) &&
             curretTimeAsPerTimezone(clientInfo.timezone).toDateString() != taskTime.toDateString()) {
             taskTime = moment(taskTime).add(1, "year").toDate();
         } else {
-            sendMessage("We cannot set your reminder at old date time", res);
+            sendMessage("We have detected that the date/time has already passed. Please ensure it's not an error and there are no issues with the format", res);
             return;
         }
     }
@@ -273,12 +266,17 @@ app.post("/incoming", asyncHandler(async (req, res) => {
     let tz = moment().tz(clientInfo.timezone).utcOffset();
     let offset = (taskTime.getTimezoneOffset() + tz) * 60 * 1000 * -1;
     taskTime.setTime(taskTime.getTime() + offset);
-
+     console.log('l1');
     if (isNaN(taskTime)) {
-        sendMessage("Please enter your date and time properly. Ex: Jan 30 at 2am or 30th Jan at 2am", res);
+        sendMessage("No time was detected, please try again. Also make sure the format is am or pm, eg : ‘430pm’", res);
         return;
     }
-
+     console.log('l3');
+    if (!taskName) {
+        sendMessage("No subject/topic was detected. Please re-write the reminder, indicating what we should remind you off on the provided time and date", res);
+        return;
+    }
+     console.log('l4');
     // Creating reminders
     console.log('Reminder created for:', moment.tz(taskTime, clientInfo.timezone).format('YYYY-MM-DDTHH:mm'), clientInfo.timezone);
     const taskInfo = new Reminder({ taskName, taskTime, mobile });
@@ -286,9 +284,8 @@ app.post("/incoming", asyncHandler(async (req, res) => {
         if (err) {
             console.log(err);
         } else {
-            console.log(taskName);
-            taskTime= moment.tz(taskTime, clientInfo.timezone).format('MMMM D, YYYY H:mm:ss');           
-            sendMessage(`Ok 👍, your reminder is set \n*${taskName}* on \n${taskTime}`, res);
+            taskTime= moment.tz(taskTime, clientInfo.timezone).format('D MMMM YYYY @ h:mm a');           
+            sendMessage(`Ok 👍, reminder set \n*${taskName}* \nfor ${taskTime}`, res);
         }
     });
 }));
